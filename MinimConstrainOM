@@ -1,0 +1,76 @@
+function [Xval, Xsym, fval, z_sorted, neq] = MinimConstrainOM(B_ampl, z, d_ampl, Iterpar, Wi)
+% MinimConstrainOM performs constrained optimization to minimize the objective function
+% with respect to constraints derived from the system of equations.
+%
+% Inputs:
+%   B_ampl - Matrix representing the system of equations
+%   z - Vector of variables
+%   d_ampl - Vector of known values
+%   Iterpar - Display options for the optimization algorithm
+%   Wi - Weighting vector for the objective function
+%
+% Outputs:
+%   Xval - Optimal values of the variables
+%   Xsym - Symbolic representation of the variables
+%   fval - Value of the objective function at the solution
+%   z_sorted - Sorted vector of variables
+%   neq - Number of equations
+
+    [neq, ~] = size(B_ampl);
+
+    %% Optimization Settings
+    options = optimset('fmincon');
+    options = optimset(options, ...
+        'Algorithm', 'sqp', ...
+        'Maxiter', 2e3, ...
+        'Maxfunevals', 2e5, ...
+        'TolCon', 1e-8, ...
+        'TolX', 1e-8, ...
+        'TolFun', 1e-9, ...
+        'Display', Iterpar);
+    % Uncomment the following line if you want to use parallel processing
+    % options = optimset(options, 'UseParallel', true);
+
+    %% Identify Variables
+    [mat_1, mat_2, mat_3, B_amplsorted, z_sorted, ...
+        nF0, ndouble, nsingle, varsingle, vardouble, varF0] = IdentifVar(B_ampl, z);
+
+    %% Parameters for Optimization
+    nunknown = nF0 + ndouble + nsingle;
+
+    %% Initial Values
+    initial = [zeros(neq, 1); ones(nunknown, 1)];
+
+    %% Optimization Constraints
+    % Inequality constraints
+    A = []; b = []; % A*x <= b
+
+    % Equality constraints
+    Aeq = [-eye(neq), B_amplsorted, zeros(neq, nunknown - size(B_amplsorted, 2))];
+    beq = d_ampl;
+
+    % Bound constraints
+    lb = [-inf(neq, 1); -100*ones(nunknown, 1)];
+    ub = [inf(neq, 1); 100*ones(nunknown, 1)];
+
+    %% Solve Optimization Problem
+    [Xval, fval] = fmincon(@(X) objectiveFunction(X(1:neq), Wi), ...
+                           initial, A, b, Aeq, beq, lb, ub, @nonlinearConstraints, options);
+
+    %% Symbolic Variables
+    Xsym = [varF0; vardouble; varsingle];
+    Xval(1:neq) = [];
+
+    %% Nested Functions
+    function y = objectiveFunction(X, Wi)
+        % Objective function for optimization
+        y = sum(Wi .* (X .^ 2));
+    end
+
+    function [c, ceq] = nonlinearConstraints(X)
+        % Nonlinear constraints
+        c = [];
+        ceq = mat_1 * X - mat_2 .* (mat_3 * X);
+    end
+
+end
